@@ -11,6 +11,8 @@ import akka.persistence.typed.scaladsl.Effect
 import scala.concurrent.ExecutionContext.Implicits._
 import scala.concurrent.duration._
 
+import ActorContextExt.ops._
+
 // ===============================================================
 // Demo of an Event-driven Architecture in Akka and Scala.
 //
@@ -69,7 +71,7 @@ object OrderManagement extends App {
     Behaviors.setup[OrderMessage] { context =>
       val self = context.self.toUntyped
 
-      context.system.toUntyped.eventStream.subscribe(context.self.toUntyped, classOf[OrderEvent]) // Subscribe to OrderEvent Events
+      context.eventStream.subscribe(classOf[OrderEvent]) // Subscribe to OrderEvent Events
 
       Behaviors.receiveMessage {
         case cmd: CreateOrder =>                                          // 1. Receive CreateOrder Command
@@ -110,6 +112,8 @@ object OrderManagement extends App {
   def mkInventory = Behaviors.setup[InventoryCommand] { context =>
     val persistenceId = "Inventory"
 
+    val eventStream = context.eventStream[InventoryEvent]
+
     val system = context.system.toUntyped
     val self = context.self.toUntyped
 
@@ -129,14 +133,14 @@ object OrderManagement extends App {
           val productStatus = reserveProduct(cmd.userId, cmd.productId) // Try to reserve the product
           println(s"COMMAND:\t\t$cmd => ${self.path.name}")
           Effect.persist(productStatus).thenRun { _ =>                  // Try to persist the Event
-            system.eventStream.publish(productStatus)                   // If successful, publish Event to Event Stream
+            eventStream.publish(productStatus)                          // If successful, publish Event to Event Stream
           }
 
         case cmd: ShipProduct =>                                        // Receive ShipProduct Command
           val shippingStatus = shipProduct(cmd.userId, cmd.txId)        // Try to ship the product
           println(s"COMMAND:\t\t$cmd => ${self.path.name}")
           Effect.persist(shippingStatus).thenRun { _ =>                 // Try to persist the Event
-            system.eventStream.publish(shippingStatus)                  // If successful, publish Event to Event Stream
+            eventStream.publish(shippingStatus)                         // If successful, publish Event to Event Stream
           }
       }
 
