@@ -1,11 +1,12 @@
 package sample.eventdriven.scala
 
 import akka.actor.{Actor, ActorRef, ActorSystem, Inbox, Props}
-import akka.actor.typed
 import akka.actor.typed.Behavior
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.scaladsl.adapter._
 import akka.persistence.PersistentActor
+import akka.persistence.typed.scaladsl.PersistentBehaviors
+import akka.persistence.typed.scaladsl.Effect
 
 import scala.concurrent.ExecutionContext.Implicits._
 import scala.concurrent.duration._
@@ -35,24 +36,28 @@ object OrderManagement extends App {
   sealed trait OrderCommand extends OrderMessage
   sealed trait OrderEvent extends OrderMessage
 
+  sealed trait InventoryCommand
+  sealed trait InventoryEvent
+  final case class InventoryState(nrOfProductsShipped: Int = 0)
+
   // =========================================================
   // Commands
   // =========================================================
   sealed trait Command
   final case class CreateOrder(userId: Int, productId: Int) extends Command with OrderCommand
-  final case class ReserveProduct(userId: Int, productId: Int) extends Command
+  final case class ReserveProduct(userId: Int, productId: Int) extends Command with InventoryCommand
   final case class SubmitPayment(userId: Int, productId: Int) extends Command
-  final case class ShipProduct(userId: Int, txId: Int) extends Command
+  final case class ShipProduct(userId: Int, txId: Int) extends Command with InventoryCommand
 
   // =========================================================
   // Events
   // =========================================================
   sealed trait Event
-  final case class ProductReserved(userId: Int, txId: Int) extends Event with OrderEvent
+  final case class ProductReserved(userId: Int, txId: Int) extends Event with OrderEvent with InventoryEvent
   final case class ProductOutOfStock(userId: Int, productId: Int) extends Event with OrderEvent
   final case class PaymentAuthorized(userId: Int, txId: Int) extends Event with OrderEvent
   final case class PaymentDeclined(userId: Int, txId: Int) extends Event with OrderEvent
-  final case class ProductShipped(userId: Int, txId: Int) extends Event with OrderEvent
+  final case class ProductShipped(userId: Int, txId: Int) extends Event with OrderEvent with InventoryEvent
   final case class OrderFailed(userId: Int, txId: Int, reason: String) extends Event
   final case class OrderCompleted(userId: Int, txId: Int) extends Event
 
@@ -108,45 +113,55 @@ object OrderManagement extends App {
   // =========================================================
   // Event Sourced Aggregate
   // =========================================================
-  class Inventory extends PersistentActor {
+  def mkInventory = Behaviors.setup[InventoryCommand] { context =>
     val persistenceId = "Inventory"
 
-    var nrOfProductsShipped = 0 // Mutable state, persisted in memory (AKA Memory Image)
+    val system = context.system.toUntyped
+    val self = context.self.toUntyped
 
-    def reserveProduct(userId: Int, productId: Int): Event = {
+    def reserveProduct(userId: Int, productId: Int): InventoryEvent = {
       println(s"SIDE-EFFECT:\tReserving Product => ${self.path.name}")
       ProductReserved(userId, productId)
     }
 
-    def shipProduct(userId: Int, txId: Int): Event = {
+    def shipProduct(userId: Int, txId: Int): InventoryEvent = {
       println(s"SIDE-EFFECT:\tShipping Product => ${self.path.name}")
       ProductShipped(userId, txId)
     }
 
-    def receiveCommand = {
-      case cmd: ReserveProduct =>                                     // Receive ReserveProduct Command
+    def receiveCommand: (InventoryState, InventoryCommand) ⇒ Effect[InventoryEvent, InventoryState] = {
+      case (state, cmd: ReserveProduct) =>                            // Receive ReserveProduct Command
         val productStatus = reserveProduct(cmd.userId, cmd.productId) // Try to reserve the product
-        persist(productStatus) { event =>                             // Try to persist the Event
-          context.system.eventStream.publish(event)                   // If successful, publish Event to Event Stream
-        }
         println(s"COMMAND:\t\t$cmd => ${self.path.name}")
+        Effect.persist(productStatus).thenRun { event =>              // Try to persist the Event
+          system.eventStream.publish(event)                           // If successful, publish Event to Event Stream
+        }
 
-      case cmd: ShipProduct =>                                        // Receive ShipProduct Command
+      case (state, cmd: ShipProduct) =>                               // Receive ShipProduct Command
         val shippingStatus = shipProduct(cmd.userId, cmd.txId)        // Try to ship the product
-        persist(shippingStatus) { event =>                            // Try to persist the Event
-          context.system.eventStream.publish(event)                   // If successful, publish Event to Event Stream
-        }
         println(s"COMMAND:\t\t$cmd => ${self.path.name}")
+        Effect.persist(shippingStatus).thenRun  { event =>            // Try to persist the Event
+          system.eventStream.publish(event)                           // If successful, publish Event to Event Stream
+        }
     }
 
-    def receiveRecover = {
-      case event: ProductReserved => // Replay the ProductReserved events
+    def receiveRecover: (InventoryState, InventoryEvent) ⇒ InventoryState = {
+      case (state, event: ProductReserved) => // Replay the ProductReserved events
         println(s"EVENT (REPLAY):\t$event => ${self.path.name}")
+        state
 
-      case event: ProductShipped =>  // Replay the ProductShipped events
-        nrOfProductsShipped += 1
-        println(s"EVENT (REPLAY):\t$event => ${self.path.name} - ProductsShipped: $nrOfProductsShipped")
+      case (state, event: ProductShipped) =>  // Replay the ProductShipped events
+        val newState = state.copy(nrOfProductsShipped = state.nrOfProductsShipped + 1)
+        println(s"EVENT (REPLAY):\t$event => ${self.path.name} - ProductsShipped: ${newState.nrOfProductsShipped}")
+        newState
     }
+
+    PersistentBehaviors.receive[InventoryCommand, InventoryEvent, InventoryState](
+      persistenceId = persistenceId,
+      emptyState = InventoryState(),
+      commandHandler = receiveCommand,
+      eventHandler = receiveRecover,
+    )
   }
 
   // =========================================================
@@ -193,7 +208,7 @@ object OrderManagement extends App {
   val client = clientInbox.getRef()
 
   // Create the services (cheating with "DI" by exploiting enclosing object scope)
-  val inventory = system.actorOf(Props(classOf[Inventory]), "Inventory")
+  val inventory = system.spawn(mkInventory, "Inventory").toUntyped
   val payment   = system.actorOf(Props(classOf[Payment]), "Payment")
   val orders    = system.spawn(mkOrders(client, inventory, payment), "Orders").toUntyped
 
