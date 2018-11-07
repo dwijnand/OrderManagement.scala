@@ -67,16 +67,9 @@ object OrderManagement extends App {
   // =========================================================
   def mkOrders(client: ActorRef, inventory: ActorRef, payment: ActorRef): Behavior[OrderCommand] =
     Behaviors.setup[OrderMessage] { context =>
-      val system = context.system.toUntyped
       val self = context.self.toUntyped
 
-      {
-        system.eventStream.subscribe(self, classOf[ProductReserved])   // Subscribe to ProductReserved Events
-        system.eventStream.subscribe(self, classOf[ProductOutOfStock]) // Subscribe to ProductOutOfStock Events
-        system.eventStream.subscribe(self, classOf[ProductShipped])    // Subscribe to ProductShipped Events
-        system.eventStream.subscribe(self, classOf[PaymentAuthorized]) // Subscribe to PaymentAuthorized Events
-        system.eventStream.subscribe(self, classOf[PaymentDeclined])   // Subscribe to PaymentDeclined Events
-      }
+      context.system.toUntyped.eventStream.subscribe(context.self.toUntyped, classOf[OrderEvent]) // Subscribe to OrderEvent Events
 
       Behaviors.receiveMessage {
         case cmd: CreateOrder =>                                          // 1. Receive CreateOrder Command
