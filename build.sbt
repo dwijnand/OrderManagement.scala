@@ -14,12 +14,4 @@ libraryDependencies += "org.fusesource.leveldbjni" % "leveldbjni-all" % "1.8"
 
 fork in run := true // for leveldb
 
-// workaround to avoid defining in src/main/resources/application.conf
-// because GitHub Gist doesn't support directories
-javaOptions ++= Seq(
-//"-Dakka.persistence.journal.plugin=akka.persistence.journal.inmem",
-  "-Dakka.persistence.journal.plugin=akka.persistence.journal.leveldb",
-  "-Dakka.persistence.journal.leveldb.dir=target/journal",
-)
-
 cancelable in Global := true
