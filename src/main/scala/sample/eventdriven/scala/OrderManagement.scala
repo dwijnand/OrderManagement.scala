@@ -2,7 +2,7 @@ package sample.eventdriven.scala
 
 import akka.actor.{ActorRef, ActorSystem, Inbox, Props}
 import akka.actor.typed.Behavior
-import akka.actor.typed.scaladsl.Behaviors
+import akka.actor.typed.scaladsl.{ Behaviors, EventStream }
 import akka.actor.typed.scaladsl.adapter._
 import akka.persistence.PersistentActor
 import akka.persistence.typed.scaladsl.PersistentBehaviors
@@ -109,12 +109,13 @@ object OrderManagement extends App {
   // =========================================================
   // Event Sourced Aggregate
   // =========================================================
-  def mkInventory = Behaviors.setup[InventoryCommand] { context =>
+  def mkInventory: Behavior[InventoryCommand] = Behaviors.setup { context =>
     val persistenceId = "Inventory"
 
-    val eventStream = context.eventStream[InventoryEvent]
+    // WORKAROUND akka/akka#25887
+    // val eventStream = context.eventStream[InventoryEvent]
+    val eventStream = new EventStream[InventoryEvent](context.self.toUntyped, context.system.toUntyped)
 
-    val system = context.system.toUntyped
     val self = context.self.toUntyped
 
     def reserveProduct(userId: Int, productId: Int): InventoryEvent = {
