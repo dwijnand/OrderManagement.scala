@@ -128,15 +128,15 @@ object OrderManagement extends App {
         case cmd: ReserveProduct =>                                     // Receive ReserveProduct Command
           val productStatus = reserveProduct(cmd.userId, cmd.productId) // Try to reserve the product
           println(s"COMMAND:\t\t$cmd => ${self.path.name}")
-          Effect.persist(productStatus).thenRun { event =>              // Try to persist the Event
-            system.eventStream.publish(event)                           // If successful, publish Event to Event Stream
+          Effect.persist(productStatus).thenRun { _ =>                  // Try to persist the Event
+            system.eventStream.publish(productStatus)                   // If successful, publish Event to Event Stream
           }
 
         case cmd: ShipProduct =>                                        // Receive ShipProduct Command
           val shippingStatus = shipProduct(cmd.userId, cmd.txId)        // Try to ship the product
           println(s"COMMAND:\t\t$cmd => ${self.path.name}")
-          Effect.persist(shippingStatus).thenRun  { event =>            // Try to persist the Event
-            system.eventStream.publish(event)                           // If successful, publish Event to Event Stream
+          Effect.persist(shippingStatus).thenRun { _ =>                 // Try to persist the Event
+            system.eventStream.publish(shippingStatus)                  // If successful, publish Event to Event Stream
           }
       }
 
