@@ -74,7 +74,7 @@ object OrderManagement extends App {
   def mkOrders(
       client: akka.actor.ActorRef,
       inventory: ActorRef[InventoryCommand],
-      payment: akka.actor.ActorRef,
+      payment: ActorRef[PaymentCommand],
   ): Behavior[OrderCommand] =
     Behaviors.setup[OrderMessage] { context =>
       val self = context.self.toUntyped
@@ -88,7 +88,7 @@ object OrderManagement extends App {
           Behaviors.same
 
         case evt: ProductReserved =>                                      // 3. Receive ProductReserved Event
-          payment.tell(SubmitPayment(evt.userId, evt.txId), self)         // 4. Send SubmitPayment Command to Payment
+          payment.tell(SubmitPayment(evt.userId, evt.txId))               // 4. Send SubmitPayment Command to Payment
           println(s"EVENT:\t\t\t$evt => ${self.path.name}")
           Behaviors.same
 
@@ -229,7 +229,7 @@ object OrderManagement extends App {
 
   // Create the services (cheating with "DI" by exploiting enclosing object scope)
   val inventory = system.spawn(mkInventory, "Inventory")
-  val payment   = system.spawn(mkPayment, "Payment").toUntyped
+  val payment   = system.spawn(mkPayment, "Payment")
   val orders    = system.spawn(mkOrders(client, inventory, payment), "Orders").toUntyped
 
   // Submit an order
