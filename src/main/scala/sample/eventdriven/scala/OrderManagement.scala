@@ -1,6 +1,6 @@
 package sample.eventdriven.scala
 
-import akka.actor.{Actor, ActorRef, ActorSystem, Inbox, Props}
+import akka.actor.{ActorRef, ActorSystem, Inbox, Props}
 import akka.actor.typed.Behavior
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.scaladsl.adapter._
