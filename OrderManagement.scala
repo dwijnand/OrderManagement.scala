@@ -54,7 +54,7 @@ object OrderManagement extends App {
   // =========================================================
   sealed trait Event
   final case class ProductReserved(userId: Int, txId: Int) extends Event with OrderEvent with InventoryEvent
-  final case class ProductOutOfStock(userId: Int, productId: Int) extends Event with OrderEvent
+  final case class ProductOutOfStock(userId: Int, txId: Int) extends Event with OrderEvent
   final case class PaymentAuthorized(userId: Int, txId: Int) extends Event with OrderEvent
   final case class PaymentDeclined(userId: Int, txId: Int) extends Event with OrderEvent
   final case class ProductShipped(userId: Int, txId: Int) extends Event with OrderEvent with InventoryEvent
@@ -121,7 +121,7 @@ object OrderManagement extends App {
 
     def reserveProduct(userId: Int, productId: Int): InventoryEvent = {
       println(s"SIDE-EFFECT:\tReserving Product => ${self.path.name}")
-      ProductReserved(userId, productId)
+      ProductReserved(userId, txId = productId) // TODO: txId = productId ???
     }
 
     def shipProduct(userId: Int, txId: Int): InventoryEvent = {
