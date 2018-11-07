@@ -1,7 +1,7 @@
 package sample.eventdriven.scala
 
-import akka.actor.{ActorRef, ActorSystem, Inbox, Props}
-import akka.actor.typed.Behavior
+import akka.actor.{ActorSystem, Inbox, Props}
+import akka.actor.typed.{ ActorRef, Behavior }
 import akka.actor.typed.scaladsl.{ Behaviors, EventStream }
 import akka.actor.typed.scaladsl.adapter._
 import akka.persistence.PersistentActor
@@ -67,7 +67,11 @@ object OrderManagement extends App {
   // Top-level service functioning as a Process Manager
   // Coordinating the workflow on behalf of the Client
   // =========================================================
-  def mkOrders(client: ActorRef, inventory: ActorRef, payment: ActorRef): Behavior[OrderCommand] =
+  def mkOrders(
+      client: akka.actor.ActorRef,
+      inventory: ActorRef[InventoryCommand],
+      payment: akka.actor.ActorRef,
+  ): Behavior[OrderCommand] =
     Behaviors.setup[OrderMessage] { context =>
       val self = context.self.toUntyped
 
@@ -75,7 +79,7 @@ object OrderManagement extends App {
 
       Behaviors.receiveMessage {
         case cmd: CreateOrder =>                                          // 1. Receive CreateOrder Command
-          inventory.tell(ReserveProduct(cmd.userId, cmd.productId), self) // 2. Send ReserveProduct Command to Inventory
+          inventory.tell(ReserveProduct(cmd.userId, cmd.productId))       // 2. Send ReserveProduct Command to Inventory
           println(s"COMMAND:\t\t$cmd => ${self.path.name}")
           Behaviors.same
 
@@ -90,7 +94,7 @@ object OrderManagement extends App {
           Behaviors.same
 
         case evt: PaymentAuthorized =>                                    // 5. Receive PaymentAuthorized Event
-          inventory.tell(ShipProduct(evt.userId, evt.txId), self)         // 6. Send ShipProduct Command to Inventory
+          inventory.tell(ShipProduct(evt.userId, evt.txId))               // 6. Send ShipProduct Command to Inventory
           println(s"EVENT:\t\t\t$evt => ${self.path.name}")
           Behaviors.same
 
@@ -208,7 +212,7 @@ object OrderManagement extends App {
   val client = clientInbox.getRef()
 
   // Create the services (cheating with "DI" by exploiting enclosing object scope)
-  val inventory = system.spawn(mkInventory, "Inventory").toUntyped
+  val inventory = system.spawn(mkInventory, "Inventory")
   val payment   = system.actorOf(Props(classOf[Payment]), "Payment")
   val orders    = system.spawn(mkOrders(client, inventory, payment), "Orders").toUntyped
 
