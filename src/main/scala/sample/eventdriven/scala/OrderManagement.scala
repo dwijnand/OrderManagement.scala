@@ -1,10 +1,9 @@
 package sample.eventdriven.scala
 
-import akka.actor.{ActorSystem, Inbox, Props}
+import akka.actor.{ActorSystem, Inbox}
 import akka.actor.typed.{ ActorRef, Behavior }
 import akka.actor.typed.scaladsl.{ Behaviors, EventStream }
 import akka.actor.typed.scaladsl.adapter._
-import akka.persistence.PersistentActor
 import akka.persistence.typed.scaladsl.PersistentBehaviors
 import akka.persistence.typed.scaladsl.Effect
 
