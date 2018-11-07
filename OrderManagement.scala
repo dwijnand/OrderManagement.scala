@@ -31,21 +31,22 @@ object OrderManagement extends App {
   // Commands
   // =========================================================
   sealed trait Command
-  case class CreateOrder(userId: Int, productId: Int) extends Command
-  case class ReserveProduct(userId: Int, productId: Int) extends Command
-  case class SubmitPayment(userId: Int, productId: Int) extends Command
-  case class ShipProduct(userId: Int, txId: Int) extends Command
+  final case class CreateOrder(userId: Int, productId: Int) extends Command
+  final case class ReserveProduct(userId: Int, productId: Int) extends Command
+  final case class SubmitPayment(userId: Int, productId: Int) extends Command
+  final case class ShipProduct(userId: Int, txId: Int) extends Command
 
   // =========================================================
   // Events
   // =========================================================
   sealed trait Event
-  case class ProductReserved(userId: Int, txId: Int) extends Event
-  case class ProductOutOfStock(userId: Int, productId: Int) extends Event
-  case class PaymentAuthorized(userId: Int, txId: Int) extends Event
-  case class PaymentDeclined(userId: Int, txId: Int) extends Event
-  case class ProductShipped(userId: Int, txId: Int) extends Event
-  case class OrderCompleted(userId: Int, txId: Int) extends Event
+  final case class ProductReserved(userId: Int, txId: Int) extends Event
+  final case class ProductOutOfStock(userId: Int, productId: Int) extends Event
+  final case class PaymentAuthorized(userId: Int, txId: Int) extends Event
+  final case class PaymentDeclined(userId: Int, txId: Int) extends Event
+  final case class ProductShipped(userId: Int, txId: Int) extends Event
+  final case class OrderFailed(userId: Int, txId: Int, reason: String) extends Event
+  final case class OrderCompleted(userId: Int, txId: Int) extends Event
 
   // =========================================================
   // Top-level service functioning as a Process Manager
@@ -70,9 +71,19 @@ object OrderManagement extends App {
         payment.tell(SubmitPayment(evt.userId, evt.txId), self)         // 4. Send SubmitPayment Command to Payment
         println(s"EVENT:\t\t\t$evt => ${self.path.name}")
 
+      case evt: ProductOutOfStock =>                                         // ALT 3. Receive ProductOutOfStock Event
+        client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"), self) // ALT 4. Send OrderFailed Event back to Client
+        println(s"EVENT:\t\t\t$evt => ${self.path.name}")
+        Behaviors.same
+
       case evt: PaymentAuthorized =>                                    // 5. Receive PaymentAuthorized Event
         inventory.tell(ShipProduct(evt.userId, evt.txId), self)         // 6. Send ShipProduct Command to Inventory
         println(s"EVENT:\t\t\t$evt => ${self.path.name}")
+
+      case evt: PaymentDeclined =>                                           // ALT 5. Receive PaymentDeclined Event
+        client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"), self) // ALT 6. Send OrderFailed Event back to Client
+        println(s"EVENT:\t\t\t$evt => ${self.path.name}")
+        Behaviors.same
 
       case evt: ProductShipped =>                                       // 7. Receive ProductShipped Event
         client.tell(OrderCompleted(evt.userId, evt.txId), self)         // 8. Send OrderCompleted Event back to Client
@@ -94,8 +105,7 @@ object OrderManagement extends App {
     }
 
     def shipProduct(userId: Int, txId: Int): Event = {
-      nrOfProductsShipped += 1 // Update internal state
-      println(s"SIDE-EFFECT:\tShipping Product => ${self.path.name}" + " - ProductsShipped: " + nrOfProductsShipped)
+      println(s"SIDE-EFFECT:\tShipping Product => ${self.path.name}")
       ProductShipped(userId, txId)
     }
 
