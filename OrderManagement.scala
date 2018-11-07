@@ -1,6 +1,10 @@
 package sample.eventdriven.scala
 
 import akka.actor.{Actor, ActorRef, ActorSystem, Inbox, Props}
+import akka.actor.typed
+import akka.actor.typed.Behavior
+import akka.actor.typed.scaladsl.Behaviors
+import akka.actor.typed.scaladsl.adapter._
 import akka.persistence.PersistentActor
 
 import scala.concurrent.ExecutionContext.Implicits._
@@ -27,11 +31,15 @@ import scala.concurrent.duration._
 
 object OrderManagement extends App {
 
+  sealed trait OrderMessage
+  sealed trait OrderCommand extends OrderMessage
+  sealed trait OrderEvent extends OrderMessage
+
   // =========================================================
   // Commands
   // =========================================================
   sealed trait Command
-  final case class CreateOrder(userId: Int, productId: Int) extends Command
+  final case class CreateOrder(userId: Int, productId: Int) extends Command with OrderCommand
   final case class ReserveProduct(userId: Int, productId: Int) extends Command
   final case class SubmitPayment(userId: Int, productId: Int) extends Command
   final case class ShipProduct(userId: Int, txId: Int) extends Command
@@ -40,11 +48,11 @@ object OrderManagement extends App {
   // Events
   // =========================================================
   sealed trait Event
-  final case class ProductReserved(userId: Int, txId: Int) extends Event
-  final case class ProductOutOfStock(userId: Int, productId: Int) extends Event
-  final case class PaymentAuthorized(userId: Int, txId: Int) extends Event
-  final case class PaymentDeclined(userId: Int, txId: Int) extends Event
-  final case class ProductShipped(userId: Int, txId: Int) extends Event
+  final case class ProductReserved(userId: Int, txId: Int) extends Event with OrderEvent
+  final case class ProductOutOfStock(userId: Int, productId: Int) extends Event with OrderEvent
+  final case class PaymentAuthorized(userId: Int, txId: Int) extends Event with OrderEvent
+  final case class PaymentDeclined(userId: Int, txId: Int) extends Event with OrderEvent
+  final case class ProductShipped(userId: Int, txId: Int) extends Event with OrderEvent
   final case class OrderFailed(userId: Int, txId: Int, reason: String) extends Event
   final case class OrderCompleted(userId: Int, txId: Int) extends Event
 
@@ -52,9 +60,11 @@ object OrderManagement extends App {
   // Top-level service functioning as a Process Manager
   // Coordinating the workflow on behalf of the Client
   // =========================================================
-  class Orders(client: ActorRef, inventory: ActorRef, payment: ActorRef) extends Actor {
+  def mkOrders(client: ActorRef, inventory: ActorRef, payment: ActorRef) = Behaviors.setup[OrderCommand] { context =>
+    val system = context.system.toUntyped
+    val self = context.self.toUntyped
 
-    override def preStart = {
+    {
       system.eventStream.subscribe(self, classOf[ProductReserved])   // Subscribe to ProductReserved Events
       system.eventStream.subscribe(self, classOf[ProductOutOfStock]) // Subscribe to ProductOutOfStock Events
       system.eventStream.subscribe(self, classOf[ProductShipped])    // Subscribe to ProductShipped Events
@@ -62,14 +72,16 @@ object OrderManagement extends App {
       system.eventStream.subscribe(self, classOf[PaymentDeclined])   // Subscribe to PaymentDeclined Events
     }
 
-    def receive = {
+    Behaviors.receiveMessage[OrderMessage] {
       case cmd: CreateOrder =>                                          // 1. Receive CreateOrder Command
         inventory.tell(ReserveProduct(cmd.userId, cmd.productId), self) // 2. Send ReserveProduct Command to Inventory
         println(s"COMMAND:\t\t$cmd => ${self.path.name}")
+        Behaviors.same
 
       case evt: ProductReserved =>                                      // 3. Receive ProductReserved Event
         payment.tell(SubmitPayment(evt.userId, evt.txId), self)         // 4. Send SubmitPayment Command to Payment
         println(s"EVENT:\t\t\t$evt => ${self.path.name}")
+        Behaviors.same
 
       case evt: ProductOutOfStock =>                                         // ALT 3. Receive ProductOutOfStock Event
         client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"), self) // ALT 4. Send OrderFailed Event back to Client
@@ -79,6 +91,7 @@ object OrderManagement extends App {
       case evt: PaymentAuthorized =>                                    // 5. Receive PaymentAuthorized Event
         inventory.tell(ShipProduct(evt.userId, evt.txId), self)         // 6. Send ShipProduct Command to Inventory
         println(s"EVENT:\t\t\t$evt => ${self.path.name}")
+        Behaviors.same
 
       case evt: PaymentDeclined =>                                           // ALT 5. Receive PaymentDeclined Event
         client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"), self) // ALT 6. Send OrderFailed Event back to Client
@@ -88,7 +101,8 @@ object OrderManagement extends App {
       case evt: ProductShipped =>                                       // 7. Receive ProductShipped Event
         client.tell(OrderCompleted(evt.userId, evt.txId), self)         // 8. Send OrderCompleted Event back to Client
         println(s"EVENT:\t\t\t$evt => ${self.path.name}")
-    }
+        Behaviors.same
+    }.narrow
   }
 
   // =========================================================
@@ -181,7 +195,7 @@ object OrderManagement extends App {
   // Create the services (cheating with "DI" by exploiting enclosing object scope)
   val inventory = system.actorOf(Props(classOf[Inventory]), "Inventory")
   val payment   = system.actorOf(Props(classOf[Payment]), "Payment")
-  val orders    = system.actorOf(Props(classOf[Orders], client, inventory, payment), "Orders")
+  val orders    = system.spawn(mkOrders(client, inventory, payment), "Orders").toUntyped
 
   // Submit an order
   clientInbox.send(orders, CreateOrder(9, 1337)) // Send a CreateOrder Command to the Orders service
