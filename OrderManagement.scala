@@ -65,50 +65,51 @@ object OrderManagement extends App {
   // Top-level service functioning as a Process Manager
   // Coordinating the workflow on behalf of the Client
   // =========================================================
-  def mkOrders(client: ActorRef, inventory: ActorRef, payment: ActorRef) = Behaviors.setup[OrderCommand] { context =>
-    val system = context.system.toUntyped
-    val self = context.self.toUntyped
+  def mkOrders(client: ActorRef, inventory: ActorRef, payment: ActorRef): Behavior[OrderCommand] =
+    Behaviors.setup[OrderMessage] { context =>
+      val system = context.system.toUntyped
+      val self = context.self.toUntyped
 
-    {
-      system.eventStream.subscribe(self, classOf[ProductReserved])   // Subscribe to ProductReserved Events
-      system.eventStream.subscribe(self, classOf[ProductOutOfStock]) // Subscribe to ProductOutOfStock Events
-      system.eventStream.subscribe(self, classOf[ProductShipped])    // Subscribe to ProductShipped Events
-      system.eventStream.subscribe(self, classOf[PaymentAuthorized]) // Subscribe to PaymentAuthorized Events
-      system.eventStream.subscribe(self, classOf[PaymentDeclined])   // Subscribe to PaymentDeclined Events
-    }
+      {
+        system.eventStream.subscribe(self, classOf[ProductReserved])   // Subscribe to ProductReserved Events
+        system.eventStream.subscribe(self, classOf[ProductOutOfStock]) // Subscribe to ProductOutOfStock Events
+        system.eventStream.subscribe(self, classOf[ProductShipped])    // Subscribe to ProductShipped Events
+        system.eventStream.subscribe(self, classOf[PaymentAuthorized]) // Subscribe to PaymentAuthorized Events
+        system.eventStream.subscribe(self, classOf[PaymentDeclined])   // Subscribe to PaymentDeclined Events
+      }
 
-    Behaviors.receiveMessage[OrderMessage] {
-      case cmd: CreateOrder =>                                          // 1. Receive CreateOrder Command
-        inventory.tell(ReserveProduct(cmd.userId, cmd.productId), self) // 2. Send ReserveProduct Command to Inventory
-        println(s"COMMAND:\t\t$cmd => ${self.path.name}")
-        Behaviors.same
+      Behaviors.receiveMessage {
+        case cmd: CreateOrder =>                                          // 1. Receive CreateOrder Command
+          inventory.tell(ReserveProduct(cmd.userId, cmd.productId), self) // 2. Send ReserveProduct Command to Inventory
+          println(s"COMMAND:\t\t$cmd => ${self.path.name}")
+          Behaviors.same
 
-      case evt: ProductReserved =>                                      // 3. Receive ProductReserved Event
-        payment.tell(SubmitPayment(evt.userId, evt.txId), self)         // 4. Send SubmitPayment Command to Payment
-        println(s"EVENT:\t\t\t$evt => ${self.path.name}")
-        Behaviors.same
+        case evt: ProductReserved =>                                      // 3. Receive ProductReserved Event
+          payment.tell(SubmitPayment(evt.userId, evt.txId), self)         // 4. Send SubmitPayment Command to Payment
+          println(s"EVENT:\t\t\t$evt => ${self.path.name}")
+          Behaviors.same
 
-      case evt: ProductOutOfStock =>                                         // ALT 3. Receive ProductOutOfStock Event
-        client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"), self) // ALT 4. Send OrderFailed Event back to Client
-        println(s"EVENT:\t\t\t$evt => ${self.path.name}")
-        Behaviors.same
+        case evt: ProductOutOfStock =>                                         // ALT 3. Receive ProductOutOfStock Event
+          client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"), self) // ALT 4. Send OrderFailed Event back to Client
+          println(s"EVENT:\t\t\t$evt => ${self.path.name}")
+          Behaviors.same
 
-      case evt: PaymentAuthorized =>                                    // 5. Receive PaymentAuthorized Event
-        inventory.tell(ShipProduct(evt.userId, evt.txId), self)         // 6. Send ShipProduct Command to Inventory
-        println(s"EVENT:\t\t\t$evt => ${self.path.name}")
-        Behaviors.same
+        case evt: PaymentAuthorized =>                                    // 5. Receive PaymentAuthorized Event
+          inventory.tell(ShipProduct(evt.userId, evt.txId), self)         // 6. Send ShipProduct Command to Inventory
+          println(s"EVENT:\t\t\t$evt => ${self.path.name}")
+          Behaviors.same
 
-      case evt: PaymentDeclined =>                                           // ALT 5. Receive PaymentDeclined Event
-        client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"), self) // ALT 6. Send OrderFailed Event back to Client
-        println(s"EVENT:\t\t\t$evt => ${self.path.name}")
-        Behaviors.same
+        case evt: PaymentDeclined =>                                           // ALT 5. Receive PaymentDeclined Event
+          client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"), self) // ALT 6. Send OrderFailed Event back to Client
+          println(s"EVENT:\t\t\t$evt => ${self.path.name}")
+          Behaviors.same
 
-      case evt: ProductShipped =>                                       // 7. Receive ProductShipped Event
-        client.tell(OrderCompleted(evt.userId, evt.txId), self)         // 8. Send OrderCompleted Event back to Client
-        println(s"EVENT:\t\t\t$evt => ${self.path.name}")
-        Behaviors.same
+        case evt: ProductShipped =>                                       // 7. Receive ProductShipped Event
+          client.tell(OrderCompleted(evt.userId, evt.txId), self)         // 8. Send OrderCompleted Event back to Client
+          println(s"EVENT:\t\t\t$evt => ${self.path.name}")
+          Behaviors.same
+      }
     }.narrow
-  }
 
   // =========================================================
   // Event Sourced Aggregate
