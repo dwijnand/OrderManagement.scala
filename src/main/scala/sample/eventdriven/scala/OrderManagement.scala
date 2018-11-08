@@ -1,13 +1,13 @@
 package sample.eventdriven.scala
 
-import akka.actor.{ActorSystem, Inbox}
-import akka.actor.typed.{ ActorRef, Behavior }
+import akka.actor.typed.{ ActorRef, ActorSystem, Behavior }
 import akka.actor.typed.scaladsl.{ Behaviors, EventStream }
 import akka.actor.typed.scaladsl.adapter._
 import akka.persistence.typed.scaladsl.PersistentBehaviors
 import akka.persistence.typed.scaladsl.Effect
+import akka.util.Timeout
 
-import scala.concurrent.ExecutionContext.Implicits._
+import scala.concurrent.{ Await, ExecutionContext, Future }
 import scala.concurrent.duration._
 
 import ActorContextExt.ops._
@@ -33,6 +33,10 @@ import ActorContextExt.ops._
 
 object OrderManagement extends App {
 
+  sealed trait ClientMessage
+  sealed trait ClientCommand extends ClientMessage
+  sealed trait ClientEvent extends ClientMessage
+
   sealed trait OrderMessage
   sealed trait OrderCommand extends OrderMessage
   sealed trait OrderEvent extends OrderMessage
@@ -49,6 +53,7 @@ object OrderManagement extends App {
   // Commands
   // =========================================================
   sealed trait Command
+  final case class ClientCreateOrder(order: CreateOrder, replyTo: ActorRef[ClientEvent]) extends Command with ClientCommand
   final case class CreateOrder(userId: Int, productId: Int) extends Command with OrderCommand
   final case class ReserveProduct(userId: Int, productId: Int) extends Command with InventoryCommand
   final case class SubmitPayment(userId: Int, productId: Int) extends Command with PaymentCommand
@@ -63,15 +68,15 @@ object OrderManagement extends App {
   final case class PaymentAuthorized(userId: Int, txId: Int) extends Event with OrderEvent with PaymentEvent
   final case class PaymentDeclined(userId: Int, txId: Int) extends Event with OrderEvent with PaymentEvent
   final case class ProductShipped(userId: Int, txId: Int) extends Event with OrderEvent with InventoryEvent
-  final case class OrderFailed(userId: Int, txId: Int, reason: String) extends Event
-  final case class OrderCompleted(userId: Int, txId: Int) extends Event
+  final case class OrderFailed(userId: Int, txId: Int, reason: String) extends Event with ClientEvent
+  final case class OrderCompleted(userId: Int, txId: Int) extends Event with ClientEvent
 
   // =========================================================
   // Top-level service functioning as a Process Manager
   // Coordinating the workflow on behalf of the Client
   // =========================================================
   def mkOrders(
-      client: akka.actor.ActorRef,
+      client: ActorRef[ClientEvent],
       inventory: ActorRef[InventoryCommand],
       payment: ActorRef[PaymentCommand],
   ): Behavior[OrderCommand] =
@@ -91,8 +96,8 @@ object OrderManagement extends App {
           println(s"EVENT:\t\t\t$evt => ${self.path.name}")
           Behaviors.same
 
-        case evt: ProductOutOfStock =>                                         // ALT 3. Receive ProductOutOfStock Event
-          client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"), self) // ALT 4. Send OrderFailed Event back to Client
+        case evt: ProductOutOfStock =>                                    // ALT 3. Receive ProductOutOfStock Event
+          client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"))  // ALT 4. Send OrderFailed Event back to Client
           println(s"EVENT:\t\t\t$evt => ${self.path.name}")
           Behaviors.same
 
@@ -101,13 +106,13 @@ object OrderManagement extends App {
           println(s"EVENT:\t\t\t$evt => ${self.path.name}")
           Behaviors.same
 
-        case evt: PaymentDeclined =>                                           // ALT 5. Receive PaymentDeclined Event
-          client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"), self) // ALT 6. Send OrderFailed Event back to Client
+        case evt: PaymentDeclined =>                                      // ALT 5. Receive PaymentDeclined Event
+          client.tell(OrderFailed(evt.userId, evt.txId, "out of stock"))  // ALT 6. Send OrderFailed Event back to Client
           println(s"EVENT:\t\t\t$evt => ${self.path.name}")
           Behaviors.same
 
         case evt: ProductShipped =>                                       // 7. Receive ProductShipped Event
-          client.tell(OrderCompleted(evt.userId, evt.txId), self)         // 8. Send OrderCompleted Event back to Client
+          client.tell(OrderCompleted(evt.userId, evt.txId))               // 8. Send OrderCompleted Event back to Client
           println(s"EVENT:\t\t\t$evt => ${self.path.name}")
           Behaviors.same
       }
@@ -220,21 +225,30 @@ object OrderManagement extends App {
   // =========================================================
   // Running the Order Management simulation
   // =========================================================
-  val system = ActorSystem("OrderManagement")
+  def mkOrderManagement: Behavior[ClientCommand] = Behaviors.setup[ClientCommand] { context =>
+    val inventory = context.spawn(mkInventory, "Inventory")
+    val payment = context.spawn(mkPayment, "Payment")
 
-  // Plumbing for "client"
-  val clientInbox = Inbox.create(system)
-  val client = clientInbox.getRef()
+    Behaviors.receiveMessage {
+      case cmd: ClientCreateOrder =>
+        val orders = context.spawn(mkOrders(cmd.replyTo, inventory, payment), "Orders").toUntyped
+        orders ! cmd.order
+        Behaviors.same
+    }
+  }.narrow
+  val system = ActorSystem(mkOrderManagement, "OrderManagement")
 
-  // Create the services (cheating with "DI" by exploiting enclosing object scope)
-  val inventory = system.spawn(mkInventory, "Inventory")
-  val payment   = system.spawn(mkPayment, "Payment")
-  val orders    = system.spawn(mkOrders(client, inventory, payment), "Orders").toUntyped
+  import akka.actor.typed.scaladsl.AskPattern._
+  implicit val ec: ExecutionContext = system.executionContext
+  implicit val timeout = Timeout(5.seconds + 1.minute)
+  implicit val scheduler = system.scheduler
 
   // Submit an order
-  clientInbox.send(orders, CreateOrder(9, 1337)) // Send a CreateOrder Command to the Orders service
-  clientInbox.receive(5.seconds) match {         // Wait for OrderCompleted Event
-    case confirmation: OrderCompleted =>
+  // Ask the system to create an order
+  val result: Future[ClientEvent] = system ? (ref => ClientCreateOrder(CreateOrder(9, 1337), ref))
+
+  Await.result(result, Duration.Inf) match { // Wait for OrderCompleted Event
+    case confirmation: ClientEvent =>
       println(s"EVENT:\t\t\t$confirmation => Client")
   }
 
