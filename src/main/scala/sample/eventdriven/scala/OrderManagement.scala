@@ -32,9 +32,8 @@ import ActorContextExt.ops._
 
 object OrderManagement extends App {
 
-  sealed trait ClientMessage
-  sealed trait ClientCommand extends ClientMessage
-  sealed trait ClientEvent extends ClientMessage
+  sealed trait MainCommand
+  sealed trait ClientEvent
 
   sealed trait OrderMessage
   sealed trait OrderCommand extends OrderMessage
@@ -51,24 +50,22 @@ object OrderManagement extends App {
   // =========================================================
   // Commands
   // =========================================================
-  sealed trait Command
-  final case class ClientCreateOrder(order: CreateOrder, replyTo: ActorRef[ClientEvent]) extends Command with ClientCommand
-  final case class CreateOrder(userId: Int, productId: Int) extends Command with OrderCommand
-  final case class ReserveProduct(userId: Int, productId: Int) extends Command with InventoryCommand
-  final case class SubmitPayment(userId: Int, productId: Int) extends Command with PaymentCommand
-  final case class ShipProduct(userId: Int, txId: Int) extends Command with InventoryCommand
+  final case class AskCreateOrder(order: CreateOrder, replyTo: ActorRef[ClientEvent]) extends MainCommand
+  final case class CreateOrder(userId: Int, productId: Int) extends OrderCommand
+  final case class ReserveProduct(userId: Int, productId: Int) extends InventoryCommand
+  final case class SubmitPayment(userId: Int, productId: Int) extends PaymentCommand
+  final case class ShipProduct(userId: Int, txId: Int) extends InventoryCommand
 
   // =========================================================
   // Events
   // =========================================================
-  sealed trait Event
-  final case class ProductReserved(userId: Int, txId: Int) extends Event with OrderEvent with InventoryEvent
-  final case class ProductOutOfStock(userId: Int, txId: Int) extends Event with OrderEvent
-  final case class PaymentAuthorized(userId: Int, txId: Int) extends Event with OrderEvent with PaymentEvent
-  final case class PaymentDeclined(userId: Int, txId: Int) extends Event with OrderEvent with PaymentEvent
-  final case class ProductShipped(userId: Int, txId: Int) extends Event with OrderEvent with InventoryEvent
-  final case class OrderFailed(userId: Int, txId: Int, reason: String) extends Event with ClientEvent
-  final case class OrderCompleted(userId: Int, txId: Int) extends Event with ClientEvent
+  final case class ProductReserved(userId: Int, txId: Int) extends OrderEvent with InventoryEvent
+  final case class ProductOutOfStock(userId: Int, txId: Int) extends OrderEvent
+  final case class PaymentAuthorized(userId: Int, txId: Int) extends OrderEvent with PaymentEvent
+  final case class PaymentDeclined(userId: Int, txId: Int) extends OrderEvent with PaymentEvent
+  final case class ProductShipped(userId: Int, txId: Int) extends OrderEvent with InventoryEvent
+  final case class OrderCompleted(userId: Int, txId: Int) extends ClientEvent
+  final case class OrderFailed(userId: Int, txId: Int, reason: String) extends ClientEvent
 
   // =========================================================
   // Top-level service functioning as a Process Manager
@@ -220,12 +217,12 @@ object OrderManagement extends App {
   // =========================================================
   // Running the Order Management simulation
   // =========================================================
-  def mkOrderManagement: Behavior[ClientCommand] = Behaviors.setup[ClientCommand] { context =>
+  def mkOrderManagement: Behavior[MainCommand] = Behaviors.setup[MainCommand] { context =>
     val inventory = context.spawn(mkInventory, "Inventory")
     val payment = context.spawn(mkPayment, "Payment")
 
     Behaviors.receiveMessage {
-      case cmd: ClientCreateOrder =>
+      case cmd: AskCreateOrder =>
         val orders = context.spawn(mkOrders(cmd.replyTo, inventory, payment), "Orders")
         orders ! cmd.order
         Behaviors.same
@@ -239,7 +236,7 @@ object OrderManagement extends App {
     import akka.actor.typed.scaladsl.AskPattern._
     implicit val timeout = Timeout(5.seconds + 1.minute)
     implicit val scheduler = system.scheduler
-    system ? (ref => ClientCreateOrder(CreateOrder(9, 1337), ref))
+    system ? (ref => AskCreateOrder(CreateOrder(9, 1337), ref))
   }
 
   Await.result(result, Duration.Inf) match { // Wait for OrderCompleted Event
