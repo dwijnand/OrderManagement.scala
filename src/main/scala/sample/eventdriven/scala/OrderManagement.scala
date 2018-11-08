@@ -2,7 +2,6 @@ package sample.eventdriven.scala
 
 import akka.actor.typed.{ ActorRef, ActorSystem, Behavior }
 import akka.actor.typed.scaladsl.{ Behaviors, EventStream }
-import akka.actor.typed.scaladsl.adapter._
 import akka.persistence.typed.scaladsl.PersistentBehaviors
 import akka.persistence.typed.scaladsl.Effect
 import akka.util.Timeout
@@ -81,7 +80,7 @@ object OrderManagement extends App {
       payment: ActorRef[PaymentCommand],
   ): Behavior[OrderCommand] =
     Behaviors.setup[OrderMessage] { context =>
-      val self = context.self.toUntyped
+      val self = context.self
 
       context.eventStream.subscribe(classOf[OrderEvent]) // Subscribe to OrderEvent Events
 
@@ -126,7 +125,7 @@ object OrderManagement extends App {
 
     val eventStream = EventStream.withEventType[InventoryEvent](context)
 
-    val self = context.self.toUntyped
+    val self = context.self
 
     def reserveProduct(userId: Int, productId: Int): InventoryEvent = {
       println(s"SIDE-EFFECT:\tReserving Product => ${self.path.name}")
@@ -182,7 +181,7 @@ object OrderManagement extends App {
 
     val eventStream = EventStream.withEventType[PaymentEvent](context)
 
-    val self = context.self.toUntyped
+    val self = context.self
 
     def processPayment(userId: Int, txId: Int): PaymentEvent = {
       println(s"SIDE-EFFECT:\tProcessing Payment => ${self.path.name}")
@@ -227,7 +226,7 @@ object OrderManagement extends App {
 
     Behaviors.receiveMessage {
       case cmd: ClientCreateOrder =>
-        val orders = context.spawn(mkOrders(cmd.replyTo, inventory, payment), "Orders").toUntyped
+        val orders = context.spawn(mkOrders(cmd.replyTo, inventory, payment), "Orders")
         orders ! cmd.order
         Behaviors.same
     }
