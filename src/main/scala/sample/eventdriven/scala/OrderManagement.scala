@@ -230,22 +230,23 @@ object OrderManagement extends App {
         orders ! cmd.order
         Behaviors.same
     }
-  }.narrow
+  }
   val system = ActorSystem(mkOrderManagement, "OrderManagement")
-
-  import akka.actor.typed.scaladsl.AskPattern._
-  implicit val ec: ExecutionContext = system.executionContext
-  implicit val timeout = Timeout(5.seconds + 1.minute)
-  implicit val scheduler = system.scheduler
 
   // Submit an order
   // Ask the system to create an order
-  val result: Future[ClientEvent] = system ? (ref => ClientCreateOrder(CreateOrder(9, 1337), ref))
-
-  Await.result(result, Duration.Inf) match { // Wait for OrderCompleted Event
-    case confirmation: ClientEvent =>
-      println(s"EVENT:\t\t\t$confirmation => Client")
+  val result: Future[ClientEvent] = {
+    import akka.actor.typed.scaladsl.AskPattern._
+    implicit val timeout = Timeout(5.seconds + 1.minute)
+    implicit val scheduler = system.scheduler
+    system ? (ref => ClientCreateOrder(CreateOrder(9, 1337), ref))
   }
 
+  Await.result(result, Duration.Inf) match { // Wait for OrderCompleted Event
+    case confirmation: OrderCompleted => println(s"EVENT:\t\t\t$confirmation => Client")
+    case confirmation: OrderFailed    => println(s"EVENT:\t\t\t$confirmation => Client")
+  }
+
+  import scala.concurrent.ExecutionContext.Implicits._
   system.terminate().foreach(_ => println("System has terminated"))
 }
