@@ -124,9 +124,7 @@ object OrderManagement extends App {
   def mkInventory: Behavior[InventoryCommand] = Behaviors.setup { context =>
     val persistenceId = "Inventory"
 
-    // WORKAROUND akka/akka#25887
-    // val eventStream = context.eventStream[InventoryEvent]
-    val eventStream = new EventStream[InventoryEvent](context.self.toUntyped, context.system.toUntyped)
+    val eventStream = EventStream.withEventType[InventoryEvent](context)
 
     val self = context.self.toUntyped
 
@@ -182,9 +180,7 @@ object OrderManagement extends App {
   def mkPayment: Behavior[PaymentCommand] = Behaviors.setup { context =>
     val persistenceId = "Payment"
 
-    // WORKAROUND akka/akka#25887
-    // val eventStream = context.eventStream[PaymentEvent]
-    val eventStream = new EventStream[PaymentEvent](context.self.toUntyped, context.system.toUntyped)
+    val eventStream = EventStream.withEventType[PaymentEvent](context)
 
     val self = context.self.toUntyped
 

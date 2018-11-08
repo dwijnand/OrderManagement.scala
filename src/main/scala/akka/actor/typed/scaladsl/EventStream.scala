@@ -15,3 +15,11 @@ final class EventStream[E <: AnyRef](self: untyped.ActorRef, system: untyped.Act
   def unsubscribe(): Unit                       = system.eventStream.unsubscribe(self)
   def publish(event: E): Unit                   = system.eventStream.publish(event)
 }
+
+object EventStream {
+  // WORKAROUND for akka/akka#25887
+  def withEventType[E <: AnyRef](context: ActorContext[_]): EventStream[E] = {
+    import akka.actor.typed.scaladsl.adapter._
+    new EventStream[E](context.self.toUntyped, context.system.toUntyped)
+  }
+}
