@@ -9,8 +9,6 @@ import akka.util.Timeout
 import scala.concurrent.{ Await, Future }
 import scala.concurrent.duration._
 
-import ActorContextExt.ops._
-
 // ===============================================================
 // Demo of an Event-driven Architecture in Akka and Scala.
 //
@@ -80,8 +78,6 @@ object OrderManagement extends App {
   ): Behavior[OrderCommand] =
     Behaviors.setup[OrderMessage] { context =>
       val self = context.self
-
-      context.eventStream.subscribe(classOf[OrderEvent]) // Subscribe to OrderEvent Events
 
       Behaviors.receiveMessage {
         case cmd: CreateOrder =>                                          // 1. Receive CreateOrder Command
