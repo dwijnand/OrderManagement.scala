@@ -2,8 +2,9 @@ package sample.eventdriven.scala
 
 import akka.actor.typed.{ ActorRef, ActorSystem, Behavior }
 import akka.actor.typed.scaladsl.{ Behaviors, EventStream }
-import akka.persistence.typed.scaladsl.PersistentBehaviors
+import akka.persistence.typed.scaladsl.PersistentBehavior
 import akka.persistence.typed.scaladsl.Effect
+import akka.persistence.typed.PersistenceId
 import akka.util.Timeout
 
 import scala.concurrent.{ Await, ExecutionContext, Future }
@@ -118,11 +119,9 @@ object OrderManagement extends App {
   // Event Sourced Aggregate
   // =========================================================
   def mkInventory: Behavior[InventoryCommand] = Behaviors.setup { context =>
-    val persistenceId = "Inventory"
+    val self = context.self
 
     val eventStream = EventStream.withEventType[InventoryEvent](context)
-
-    val self = context.self
 
     def reserveProduct(userId: Int, productId: Int): InventoryEvent = {
       println(s"SIDE-EFFECT:\tReserving Product => ${self.path.name}")
@@ -135,7 +134,7 @@ object OrderManagement extends App {
     }
 
     def receiveCommand: (InventoryState, InventoryCommand) ⇒ Effect[InventoryEvent, InventoryState] =
-      PersistentBehaviors.CommandHandler.command {
+      PersistentBehavior.CommandHandler.command {
         case cmd: ReserveProduct =>                                     // Receive ReserveProduct Command
           val productStatus = reserveProduct(cmd.userId, cmd.productId) // Try to reserve the product
           println(s"COMMAND:\t\t$cmd => ${self.path.name}")
@@ -162,8 +161,8 @@ object OrderManagement extends App {
         newState
     }
 
-    PersistentBehaviors.receive[InventoryCommand, InventoryEvent, InventoryState](
-      persistenceId = persistenceId,
+    PersistentBehavior[InventoryCommand, InventoryEvent, InventoryState](
+      persistenceId = PersistenceId("Inventory"),
       emptyState = InventoryState(),
       commandHandler = receiveCommand,
       eventHandler = receiveRecover,
@@ -174,11 +173,9 @@ object OrderManagement extends App {
   // Event Sourced Aggregate
   // =========================================================
   def mkPayment: Behavior[PaymentCommand] = Behaviors.setup { context =>
-    val persistenceId = "Payment"
+    val self = context.self
 
     val eventStream = EventStream.withEventType[PaymentEvent](context)
-
-    val self = context.self
 
     def processPayment(userId: Int, txId: Int): PaymentEvent = {
       println(s"SIDE-EFFECT:\tProcessing Payment => ${self.path.name}")
@@ -186,7 +183,7 @@ object OrderManagement extends App {
     }
 
     def receiveCommand: (PaymentState, PaymentCommand) ⇒ Effect[PaymentEvent, PaymentState] =
-      PersistentBehaviors.CommandHandler.command {
+      PersistentBehavior.CommandHandler.command {
         case cmd: SubmitPayment =>                                      // Receive SubmitPayment Command
           val paymentStatus = processPayment(cmd.userId, cmd.productId) // Try to pay product
           println(s"COMMAND:\t\t$cmd => ${self.path.name}")
@@ -206,8 +203,8 @@ object OrderManagement extends App {
         state
     }
 
-    PersistentBehaviors.receive[PaymentCommand, PaymentEvent, PaymentState](
-      persistenceId = persistenceId,
+    PersistentBehavior[PaymentCommand, PaymentEvent, PaymentState](
+      persistenceId = PersistenceId("Payment"),
       emptyState = PaymentState(),
       commandHandler = receiveCommand,
       eventHandler = receiveRecover,
