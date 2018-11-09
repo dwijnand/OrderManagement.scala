@@ -2,9 +2,8 @@ package sample.eventdriven.scala
 
 import akka.actor.typed.{ ActorRef, ActorSystem, Behavior }
 import akka.actor.typed.scaladsl.{ Behaviors, EventStream }
-import akka.persistence.typed.scaladsl.PersistentBehavior
-import akka.persistence.typed.scaladsl.Effect
-import akka.persistence.typed.PersistenceId
+import akka.persistence.typed.scaladsl.{ Effect, PersistentBehavior, ReplyEffect }
+import akka.persistence.typed.{ ExpectingReply, PersistenceId }
 import akka.util.Timeout
 
 import scala.concurrent.{ Await, ExecutionContext, Future }
@@ -44,8 +43,9 @@ object OrderManagement extends App {
   sealed trait InventoryEvent
   final case class InventoryState(nrOfProductsShipped: Int = 0)
 
-  sealed trait PaymentCommand
-  sealed trait PaymentEvent
+  sealed trait PaymentCommand extends ExpectingReply[PaymentReply]
+  sealed trait PaymentEvent extends OrderEvent
+  sealed trait PaymentReply extends PaymentEvent
   final case class PaymentState(uniqueTransactionNr: Int = 0)
 
   // =========================================================
@@ -54,16 +54,23 @@ object OrderManagement extends App {
   final case class AskCreateOrder(order: CreateOrder, replyTo: ActorRef[ClientEvent]) extends MainCommand
   final case class CreateOrder(userId: Int, productId: Int) extends OrderCommand
   final case class ReserveProduct(userId: Int, productId: Int) extends InventoryCommand
-  final case class SubmitPayment(userId: Int, productId: Int) extends PaymentCommand
+  final case class SubmitPayment(userId: Int, productId: Int)(override val replyTo: ActorRef[PaymentReply]) extends PaymentCommand
   final case class ShipProduct(userId: Int, txId: Int) extends InventoryCommand
+
+  // =========================================================
+  // Replies
+  // =========================================================
+  sealed trait OperationResult
+  case object Confirmed extends OperationResult
+  final case class Rejected(reason: String) extends OperationResult
 
   // =========================================================
   // Events
   // =========================================================
   final case class ProductReserved(userId: Int, txId: Int) extends OrderEvent with InventoryEvent
   final case class ProductOutOfStock(userId: Int, txId: Int) extends OrderEvent
-  final case class PaymentAuthorized(userId: Int, txId: Int) extends OrderEvent with PaymentEvent
-  final case class PaymentDeclined(userId: Int, txId: Int) extends OrderEvent with PaymentEvent
+  final case class PaymentAuthorized(userId: Int, txId: Int) extends PaymentReply
+  final case class PaymentDeclined(userId: Int, txId: Int) extends PaymentReply
   final case class ProductShipped(userId: Int, txId: Int) extends OrderEvent with InventoryEvent
   final case class OrderCompleted(userId: Int, txId: Int) extends ClientEvent
   final case class OrderFailed(userId: Int, txId: Int, reason: String) extends ClientEvent
@@ -89,7 +96,7 @@ object OrderManagement extends App {
           Behaviors.same
 
         case evt: ProductReserved =>                                      // 3. Receive ProductReserved Event
-          payment.tell(SubmitPayment(evt.userId, evt.txId))               // 4. Send SubmitPayment Command to Payment
+          payment.tell(SubmitPayment(evt.userId, evt.txId)(self))         // 4. Send SubmitPayment Command to Payment
           println(s"EVENT:\t\t\t$evt => ${self.path.name}")
           Behaviors.same
 
@@ -175,22 +182,18 @@ object OrderManagement extends App {
   def mkPayment: Behavior[PaymentCommand] = Behaviors.setup { context =>
     val self = context.self
 
-    val eventStream = context.eventStream.narrow[PaymentEvent]
-
-    def processPayment(userId: Int, txId: Int): PaymentEvent = {
+    def processPayment(userId: Int, txId: Int): PaymentReply = {
       println(s"SIDE-EFFECT:\tProcessing Payment => ${self.path.name}")
       PaymentAuthorized(userId, txId)
     }
 
-    def receiveCommand: (PaymentState, PaymentCommand) ⇒ Effect[PaymentEvent, PaymentState] =
-      PersistentBehavior.CommandHandler.command {
-        case cmd: SubmitPayment =>                                      // Receive SubmitPayment Command
-          val paymentStatus = processPayment(cmd.userId, cmd.productId) // Try to pay product
-          println(s"COMMAND:\t\t$cmd => ${self.path.name}")
-          Effect.persist(paymentStatus).thenRun { _ =>                  // Try to persist Event
-            eventStream.publish(paymentStatus)                          // If successful, publish Event to Event Stream
-          }
-      }
+    def receiveCommand: (PaymentState, PaymentCommand) ⇒ ReplyEffect[PaymentEvent, PaymentState] = {
+      case (_, cmd: SubmitPayment) =>                                 // Receive SubmitPayment Command
+        val paymentStatus = processPayment(cmd.userId, cmd.productId) // Try to pay product
+        println(s"COMMAND:\t\t$cmd => ${self.path.name}")
+        Effect.persist(paymentStatus)                                 // Try to persist Event
+            .thenReply(cmd)(_ ⇒ paymentStatus)                        // If successful, publish Event to Event Stream
+    }
 
     def receiveRecover: (PaymentState, PaymentEvent) ⇒ PaymentState = {
       case (state, evt: PaymentAuthorized) => // Replay the PaymentAuthorized events
@@ -203,7 +206,7 @@ object OrderManagement extends App {
         state
     }
 
-    PersistentBehavior[PaymentCommand, PaymentEvent, PaymentState](
+    PersistentBehavior.withEnforcedReplies[PaymentCommand, PaymentEvent, PaymentState](
       persistenceId = PersistenceId("Payment"),
       emptyState = PaymentState(),
       commandHandler = receiveCommand,
