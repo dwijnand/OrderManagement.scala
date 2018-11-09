@@ -59,13 +59,6 @@ object OrderManagement extends App {
   final case class ShipProduct(userId: Int, txId: Int)(override val replyTo: ActorRef[InventoryReply]) extends InventoryCommand
 
   // =========================================================
-  // Replies
-  // =========================================================
-  sealed trait OperationResult
-  case object Confirmed extends OperationResult
-  final case class Rejected(reason: String) extends OperationResult
-
-  // =========================================================
   // Events
   // =========================================================
   final case class ProductReserved(userId: Int, txId: Int) extends InventoryReply
