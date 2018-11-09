@@ -28,6 +28,7 @@ import scala.concurrent.duration._
 //       probably Kafka or Kinesis. Etc.
 // ===============================================================
 
+// Original https://gist.github.com/jboner/dea4aa819e127d543d684208d74081b5
 object OrderManagement extends App {
 
   sealed trait MainCommand
