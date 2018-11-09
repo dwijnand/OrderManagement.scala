@@ -2,24 +2,17 @@ package akka.actor.typed.scaladsl
 
 import scala.language.implicitConversions
 
-import akka.{ actor => untyped }
-import akka.actor.typed.ActorRef
+import akka.actor.ActorRef
 
-final class EventStream[E <: AnyRef](self: untyped.ActorRef, system: untyped.ActorSystem) {
+final class EventStream[E <: AnyRef](eventStream: akka.event.EventStream, self: ActorRef) {
   type Event = E
   type Classifier = Class[_ <: E]
-  type Subscriber = ActorRef[E]
+  type Subscriber = ActorRef
 
-  def subscribe(to: Class[_ <: E]): Boolean     = system.eventStream.subscribe(self, to)
-  def unsubscribe(from: Class[_ <: E]): Boolean = system.eventStream.unsubscribe(self, from)
-  def unsubscribe(): Unit                       = system.eventStream.unsubscribe(self)
-  def publish(event: E): Unit                   = system.eventStream.publish(event)
-}
+  def subscribe(to: Class[_ <: E]): Boolean     = eventStream.subscribe(self, to)
+  def unsubscribe(from: Class[_ <: E]): Boolean = eventStream.unsubscribe(self, from)
+  def unsubscribe(): Unit                       = eventStream.unsubscribe(self)
+  def publish(event: E): Unit                   = eventStream.publish(event)
 
-object EventStream {
-  // WORKAROUND for akka/akka#25887
-  def fromAnyActorContext[E <: AnyRef](context: ActorContext[_]): EventStream[E] = {
-    import akka.actor.typed.scaladsl.adapter._
-    new EventStream[E](context.self.toUntyped, context.system.toUntyped)
-  }
+  def narrow[A <: E]: EventStream[A] = this.asInstanceOf[EventStream[A]]
 }

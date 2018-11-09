@@ -5,7 +5,10 @@ import scala.language.implicitConversions
 import akka.actor.typed.scaladsl.{ ActorContext, EventStream }
 
 final class ActorContextExt[T <: AnyRef](private val context: ActorContext[T]) extends AnyVal {
-  def eventStream[E <: T]: EventStream[E] = EventStream.fromAnyActorContext(context)
+  def eventStream: EventStream[AnyRef] = {
+    import akka.actor.typed.scaladsl.adapter._
+    new EventStream[AnyRef](context.system.toUntyped.eventStream, context.self.toUntyped)
+  }
 }
 
 object ActorContextExt {

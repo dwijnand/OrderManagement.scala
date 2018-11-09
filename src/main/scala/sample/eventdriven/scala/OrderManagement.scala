@@ -121,7 +121,7 @@ object OrderManagement extends App {
   def mkInventory: Behavior[InventoryCommand] = Behaviors.setup { context =>
     val self = context.self
 
-    val eventStream = EventStream.fromAnyActorContext[InventoryEvent](context)
+    val eventStream = context.eventStream.narrow[InventoryEvent]
 
     def reserveProduct(userId: Int, productId: Int): InventoryEvent = {
       println(s"SIDE-EFFECT:\tReserving Product => ${self.path.name}")
@@ -175,7 +175,7 @@ object OrderManagement extends App {
   def mkPayment: Behavior[PaymentCommand] = Behaviors.setup { context =>
     val self = context.self
 
-    val eventStream = EventStream.fromAnyActorContext[PaymentEvent](context)
+    val eventStream = context.eventStream.narrow[PaymentEvent]
 
     def processPayment(userId: Int, txId: Int): PaymentEvent = {
       println(s"SIDE-EFFECT:\tProcessing Payment => ${self.path.name}")
